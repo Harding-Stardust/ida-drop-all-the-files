@@ -241,10 +241,8 @@ def load_file(file_path) -> bool:
                 """
     neflags = (
         idaapi.NEF_CODE  # load as a code segment
-        | idaapi.NEF_RELOAD  # reload the file at the same place
         | idaapi.NEF_SEGS  # create segments
         | idaapi.NEF_MAN  # manual load
-        | idaapi.NEF_LOPT  # display additional loader options dialog
     )
     success = idaapi.load_binary_file(str(file_path), li, neflags, 0, 0, address, 0)
     idaapi.close_linput(li)
@@ -382,8 +380,8 @@ class FileDropFilter(QtCore.QObject):
             return False
 
         shift_pressed = (
-            event.keyboardModifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier
-        ) != 0
+            event.keyboardModifiers() == QtCore.Qt.KeyboardModifier.ShiftModifier
+        )
 
         handled_some = False
         for url in event.mimeData().urls():
