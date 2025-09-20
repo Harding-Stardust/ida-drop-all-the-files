@@ -1,5 +1,7 @@
 # Drop All The Files
 
+![logo](src/logo.png)
+
 An IDA Pro plugin designed to make handling dropped files straightforward. Simply drop files onto IDA's window, and the plugin intelligently processes them based on their type, eliminating the need for manual configuration or analysis setup.
 
 ## Features
