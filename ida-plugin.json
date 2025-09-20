@@ -3,7 +3,7 @@
     "plugin": {
         "name": "Drop All The Files",
         "version": "1.0.0",
-        "description": "TODO",
+        "description": "A plugin for smart handling of files dropped into IDA.",
         "categories": [
             "collaboration-and-productivity",
             "file-parsers-and-loaders"
