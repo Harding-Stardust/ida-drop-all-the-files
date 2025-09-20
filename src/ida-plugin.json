@@ -1,0 +1,15 @@
+{
+    "IDAMetadataDescriptorVersion": 1,
+    "plugin": {
+        "name": "Drop All The Files",
+        "version": "1.0.0",
+        "description": "TODO",
+        "categories": [
+            "collaboration-and-productivity",
+            "file-parsers-and-loaders"
+        ],
+        "entryPoint": "drop_all_the_files.py",
+        "idaVersions": ">=9.2",
+        "logoPath": "logo.jpg"
+    }
+}
