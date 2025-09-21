@@ -1,13 +1,37 @@
+import logging
+import os
+from functools import cache
 from pathlib import Path
 
 import idaapi
 from PySide6 import QtCore, QtGui, QtWidgets
 
-
-import logging
-
 logger = logging.getLogger("drop_all_the_files")
 logger.setLevel(logging.INFO)
+
+
+class EnvironmentVarsReplacer:
+    @staticmethod
+    def get_ida_env_var_list():
+        return [
+            ("%IDADIR%", idaapi.idadir("")),
+            ("%IDAUSR%", idaapi.get_user_idadir()),
+            ("%HOME%", os.path.expanduser("~")),
+            ("%IDADIR%", "/Applications/IDA Professional 9.0.app"),
+            ("%IDADIR%", "/Applications/IDA Professional 9.1.app"),
+        ]
+
+    @staticmethod
+    def replace_env_vars(path: str) -> str:
+        for var, value in EnvironmentVarsReplacer.get_ida_env_var_list():
+            path = path.replace(var, value)
+        return path
+
+    @staticmethod
+    def restore_env_vars(path: str) -> str:
+        for var, value in EnvironmentVarsReplacer.get_ida_env_var_list():
+            path = path.replace(value, var)
+        return path
 
 
 class RecentDroppedFilenames:
@@ -19,11 +43,15 @@ class RecentDroppedFilenames:
         file_list = idaapi.reg_read_strlist(RecentDroppedFilenames.REG_KEY)
         if file_list is None or len(file_list) == 0:
             RecentDroppedFilenames.fill_from_recent_scripts()
-            return idaapi.reg_read_strlist(RecentDroppedFilenames.REG_KEY)
+            file_list = idaapi.reg_read_strlist(RecentDroppedFilenames.REG_KEY)
+            for i in range(len(file_list)):
+                file_list[i] = EnvironmentVarsReplacer.restore_env_vars(file_list[i])
+
         return file_list
 
     @staticmethod
     def add_file_path(file_path: str):
+        file_path = EnvironmentVarsReplacer.restore_env_vars(file_path)
         idaapi.reg_update_filestrlist(
             RecentDroppedFilenames.REG_KEY,
             file_path,
@@ -34,7 +62,7 @@ class RecentDroppedFilenames:
     def remove_file_path(file_path: str):
         idaapi.reg_update_filestrlist(
             RecentDroppedFilenames.REG_KEY,
-            None,
+            None,  # type: ignore
             maxrecs=RecentDroppedFilenames.MAX_RECORDS,
             rem=file_path,
         )
@@ -43,6 +71,50 @@ class RecentDroppedFilenames:
     def fill_from_recent_scripts():
         for script in idaapi.reg_read_strlist(subkey="RecentScripts"):
             RecentDroppedFilenames.add_file_path(script)
+
+    @staticmethod
+    def normalize_list():
+        files = RecentDroppedFilenames.read()
+        seen = set()
+        for i in range(len(files)):
+            files[i] = EnvironmentVarsReplacer.restore_env_vars(files[i])
+        files = [x for x in files if not (x in seen or seen.add(x))]
+
+        # there is a bug (SUPPORT-6170) in idaapi.reg_write_strlist that prevents using it, so we use _ida_registry directly
+        import _ida_registry  # type: ignore
+
+        _ida_registry.reg_write_strlist(
+            files,
+            RecentDroppedFilenames.REG_KEY,
+        )
+
+
+@cache
+def ext_to_icon_id(ext: str) -> int:
+    match ext.lower():
+        case "h" | "hpp" | "hh" | "hxx" | "c" | "cpp" | "cc" | "cxx":
+            return idaapi.get_icon_id_by_name("resources/menu/ProduceHeader.svg")
+        case "til":
+            return idaapi.get_icon_id_by_name("resources/menu/TilAddType.svg")
+        case "sig":
+            return idaapi.get_icon_id_by_name("resources/menu/LoadSigFile.svg")
+        case "py" | "pyc" | "pyo" | "pyw" | "pyx" | "pyi" | "pyz" | "pyz":
+            return 201  # /IDAG/resources/menu/201.svg
+        case "idc":
+            # return idaapi.get_icon_id_by_name("resources/menu/DumpTypes.svg")
+            return idaapi.get_icon_id_by_name("resources/menu/ExecuteLine.svg")
+            # return idaapi.get_icon_id_by_name("resources/menu/Execute.svg")
+        case "ids" | "idt":
+            # return idaapi.get_icon_id_by_name("resources/menu/LoadIdsModule.svg")
+            return 0
+        case "dbg":
+            return 0
+        case "tds":
+            return 0
+        case "pdb":
+            return 0
+        case _:
+            return idaapi.get_icon_id_by_name("resources/menu/LoadFile.svg")
 
 
 class RecentDroppedFilesChooser(idaapi.Choose):
@@ -67,7 +139,8 @@ class RecentDroppedFilesChooser(idaapi.Choose):
         return self.items[n]
 
     def OnSelectLine(self, sel: int):
-        file_path = Path(self.items[sel][1])
+        file_path = self.items[sel][1]
+        file_path = Path(EnvironmentVarsReplacer.replace_env_vars(file_path))
         if file_path.exists():
             handle_dropped_file(file_path)
 
@@ -86,6 +159,10 @@ class RecentDroppedFilesChooser(idaapi.Choose):
         if len(self.items) == 0:
             return [idaapi.Choose.ALL_CHANGED, idaapi.Choose.NO_SELECTION]
         return [idaapi.Choose.ALL_CHANGED] + self.adjust_last_item(sel)
+
+    def OnGetIcon(self, n):
+        fname: str = self.items[n][0]
+        return ext_to_icon_id(fname.rsplit(".", 1)[-1])  # type: ignore
 
 
 def parse_srclang_file(file_path):
@@ -385,7 +462,6 @@ class FileDropFilter(QtCore.QObject):
 
         handled_some = False
         for url in event.mimeData().urls():
-            # print(f"Dropped file: {url.toLocalFile()}")
             file_path = Path(url.toLocalFile())
             if not file_path.exists():
                 logger.warning(f"Dropped file does not exist: {file_path}")
@@ -417,9 +493,10 @@ class FileDropFilter(QtCore.QObject):
 class open_recent_files_ah_t(idaapi.action_handler_t):
     def activate(self, ctx: idaapi.action_ctx_base_t):
         c = RecentDroppedFilesChooser(
-            title="Recent Dropped files",
+            title="Recent dropped files",
             flags=idaapi.Choose.CH_QFLT
             | idaapi.Choose.CH_QFTYP_REGEX
+            | idaapi.Choose.CH_NO_STATUS_BAR
             | idaapi.Choose.CH_CAN_DEL,
         )
         c.Show(modal=True)
@@ -454,7 +531,7 @@ class drop_all_the_files_plugin_t(idaapi.plugin_t):
         addon.name = "Drop All The Files"
         addon.producer = "Milanek"
         addon.url = "https://github.com/milankovo/ida-drop-all-the-files"
-        addon.version = "1.0.0"
+        addon.version = "1.1.0"
         idaapi.register_addon(addon)
 
         self.install_drop_filter()
@@ -485,14 +562,12 @@ class drop_all_the_files_plugin_t(idaapi.plugin_t):
         )
 
     def unregister_actions(self):
-        # idaapi.detach_action_from_menu(
-        #     "View/Recent dropped files", self.recent_action_name
-        # )
         idaapi.unregister_action(self.recent_action_name)
 
     def term(self):
         self.remove_drop_filter()
         self.unregister_actions()
+        # RecentDroppedFilenames.normalize_list()
 
     def remove_drop_filter(self):
         if self.filter is None:

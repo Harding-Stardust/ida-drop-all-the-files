@@ -2,7 +2,7 @@
     "IDAMetadataDescriptorVersion": 1,
     "plugin": {
         "name": "Drop All The Files",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "A plugin for smart handling of files dropped into IDA.",
         "categories": [
             "collaboration-and-productivity",
