@@ -10,6 +10,18 @@ logger = logging.getLogger("drop_all_the_files")
 logger.setLevel(logging.INFO)
 
 
+def replace_in_path(path: str, old: str, new: str) -> str:
+    match os.name:
+        # case "posix":
+        #     return path.replace(old, new)
+        case "nt":
+            import re
+
+            return re.sub(old, new, path, flags=re.IGNORECASE)
+        case _:
+            return path.replace(old, new)
+
+
 class EnvironmentVarsReplacer:
     @staticmethod
     def get_ida_env_var_list():
@@ -24,13 +36,13 @@ class EnvironmentVarsReplacer:
     @staticmethod
     def replace_env_vars(path: str) -> str:
         for var, value in EnvironmentVarsReplacer.get_ida_env_var_list():
-            path = path.replace(var, value)
+            path = replace_in_path(path, var, value)
         return path
 
     @staticmethod
     def restore_env_vars(path: str) -> str:
         for var, value in EnvironmentVarsReplacer.get_ida_env_var_list():
-            path = path.replace(value, var)
+            path = replace_in_path(path, value, var)
         return path
 
 
@@ -326,7 +338,7 @@ def load_file(file_path) -> bool:
     return success
 
 
-def handle_dropped_file(file_path: Path, shift_pressed=False) -> bool:
+def handle_dropped_file(file_path: Path, shift_pressed: bool = False) -> bool:
     logger.debug(f"Handling dropped file: {file_path}")
 
     # note the absence of return statement in each case; we want to add to recent files in all cases except a few
@@ -349,7 +361,17 @@ def handle_dropped_file(file_path: Path, shift_pressed=False) -> bool:
 
         case ".py" | ".pyc" | ".pyo" | ".pyw" | ".pyx" | ".pyi" | ".pyz" | ".pyz":
             logger.debug(f"Recognized Python script file: {file_path}")
-            exec(file_path.read_text(), {"__name__": "__main__"})
+            do_run = shift_pressed or (
+                idaapi.ask_yn(
+                    idaapi.ASKBTN_NO,
+                    "AUTOHIDE DATABASE\nDo you want to execute the Python script?",
+                )
+                == idaapi.ASKBTN_YES
+            )
+            if do_run:
+                execute_python_script(file_path)
+            else:
+                return False
 
         case ".idc":
             logger.debug(f"Recognized IDC script file: {file_path}")
@@ -380,6 +402,18 @@ def handle_dropped_file(file_path: Path, shift_pressed=False) -> bool:
             return False
     RecentDroppedFilenames.add_file_path(str(file_path))
     return True
+
+
+def execute_python_script(file_path):
+    try:
+        source_code = file_path.read_text(encoding="utf-8")
+        compiled_code = compile(source_code, str(file_path), "exec")
+        exec(compiled_code)
+    except Exception as e:
+        logger.error(f"Error executing Python script {file_path}: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 def handle_idc(file_path):
@@ -531,7 +565,7 @@ class drop_all_the_files_plugin_t(idaapi.plugin_t):
         addon.name = "Drop All The Files"
         addon.producer = "Milanek"
         addon.url = "https://github.com/milankovo/ida-drop-all-the-files"
-        addon.version = "1.1.0"
+        addon.version = "1.2.0"
         idaapi.register_addon(addon)
 
         self.install_drop_filter()
