@@ -30,7 +30,7 @@ def replace_in_path(path: str, old: str, new: str) -> str:
         case "nt":
             import re
 
-            logger.debug(f"Replacing '{old}' with '{new}' in '{path}'") # Replacing 'E:\backup\tools\Debug\IDA' with '%IDADIR%' in 'P:\getch.py'	(drop_all_the_files:replace_in_path)
+            logger.debug(f"Replacing '{old}' with '{new}' in '{path}'")
             return re.sub(re.escape(old), re.escape(new), path, flags=re.IGNORECASE)
         case _:
             return path.replace(old, new)
@@ -582,6 +582,7 @@ class drop_all_the_files_plugin_t(idaapi.plugin_t):
         addon.version = "1.2.0"
         idaapi.register_addon(addon)
 
+        self.filter = None
         idaapi.register_timer(1_000, self.install_drop_filter)
         self.register_actions()
         return idaapi.PLUGIN_KEEP
@@ -595,7 +596,6 @@ class drop_all_the_files_plugin_t(idaapi.plugin_t):
             return -1 # No more tries
         else:
             logger.error("No main window found")
-            self.filter = None
             return 1_000 # Try again in 1 second
 
     def register_actions(self):
